@@ -90,6 +90,16 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Scoring Service (Python FastAPI) ─────────────────────────────────────
+  scoring-service:
+    build:
+      context: ../scoring-service
+      dockerfile: Dockerfile
+    container_name: riskguard-scoring
+    profiles: ["app"]
+    ports:
+      - "8000:8000"
+
   # ── Ingestion Service (Spring Boot) ──────────────────────────────────────
   ingestion-service:
     build:

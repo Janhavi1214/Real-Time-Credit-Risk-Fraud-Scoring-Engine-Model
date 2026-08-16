@@ -38,7 +38,37 @@ FastAPI · scikit-learn · Docker Compose · Maven
 
 ## Getting Started
 
-> Instructions will be added as each service is implemented.
+> **Prerequisites:** Ensure you have Docker and Docker Compose installed.
+
+To run the entire suite (Kafka, Redis, Postgres, ML Scoring, Ingestion, Decision) locally:
+
+```bash
+cd infra
+docker compose --profile app up --build
+```
+
+### Testing the System
+
+Send a transaction to the ingestion service:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user123",
+    "amount": 2500.0,
+    "currency": "USD",
+    "merchantId": "M999",
+    "merchantCategory": "ELECTRONICS",
+    "paymentMethod": "CREDIT_CARD"
+  }'
+```
+
+Check the evaluated decision:
+```bash
+# Replace with the transactionId returned by the POST request above
+curl http://localhost:8082/api/v1/decisions/<transactionId>
+```
 
 ## License
 

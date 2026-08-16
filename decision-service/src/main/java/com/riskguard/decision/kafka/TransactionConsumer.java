@@ -3,8 +3,14 @@ package com.riskguard.decision.kafka;
 import com.riskguard.decision.model.Transaction;
 import com.riskguard.decision.model.VelocityFeatures;
 import com.riskguard.decision.service.FeatureService;
+import com.riskguard.decision.client.ScoringClient;
+import com.riskguard.decision.entity.Decision;
+import com.riskguard.decision.model.FinalDecision;
+import com.riskguard.decision.repository.DecisionRepository;
+import com.riskguard.decision.service.RulesEngine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import java.time.Instant;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +24,9 @@ import org.springframework.stereotype.Service;
 public class TransactionConsumer {
 
     private final FeatureService featureService;
+    private final ScoringClient scoringClient;
+    private final RulesEngine rulesEngine;
+    private final DecisionRepository decisionRepository;
 
     @KafkaListener(
             topics = "transactions.raw",
@@ -44,7 +53,43 @@ public class TransactionConsumer {
                 velocity.getAmountSum5m(),
                 velocity.getAmountSum24h());
 
-        // TODO (Next stage): call scoring-service REST endpoint + rules engine + persist decision
+        // 1. Call ML Scoring Service
+        Double riskScore = scoringClient.scoreTransaction(transaction, velocity);
+
+        // 2. Evaluate Hard Rules
+        RulesEngine.RuleResult ruleResult = rulesEngine.evaluate(transaction, velocity);
+
+        // 3. Combine Results
+        FinalDecision finalDecision = ruleResult.suggestedDecision();
+        
+        if (finalDecision == FinalDecision.APPROVE) {
+            // Apply ML threshold if no hard rules blocked/flagged
+            if (riskScore > 0.85) {
+                finalDecision = FinalDecision.BLOCK;
+                ruleResult.triggeredRules().add("ML_HIGH_RISK");
+            } else if (riskScore > 0.70) {
+                finalDecision = FinalDecision.FLAG;
+                ruleResult.triggeredRules().add("ML_MEDIUM_RISK");
+            }
+        }
+
+        // 4. Persist Decision
+        Decision decision = Decision.builder()
+                .transactionId(transaction.getTransactionId())
+                .userId(transaction.getUserId())
+                .mlRiskScore(riskScore)
+                .rulesTriggered(String.join(",", ruleResult.triggeredRules()))
+                .finalDecision(finalDecision)
+                .decidedAt(Instant.now())
+                .build();
+
+        decisionRepository.save(decision);
+
+        log.info("Persisted Decision for txn [{}]: {} (Score: {}, Rules: {})",
+                transaction.getTransactionId(),
+                finalDecision,
+                riskScore,
+                ruleResult.triggeredRules());
     }
 }
 

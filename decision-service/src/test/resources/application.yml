@@ -1,0 +1,24 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+
+riskguard:
+  decision:
+    ml-threshold-flag: 0.3
+    ml-threshold-block: 0.7
+    hard-ceiling-amount: 10000.0
+    velocity-amount-threshold: 500.0
+    velocity-count-threshold: 3
+    new-device-amount-threshold: 1000.0
+    scoring-service-url: http://localhost:8000

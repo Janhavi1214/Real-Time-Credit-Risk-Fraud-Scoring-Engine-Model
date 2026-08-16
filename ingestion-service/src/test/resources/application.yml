@@ -1,0 +1,5 @@
+# Test profile — disables Kafka so unit tests run without a live broker.
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration

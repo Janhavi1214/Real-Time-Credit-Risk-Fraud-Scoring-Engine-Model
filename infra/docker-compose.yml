@@ -1,0 +1,133 @@
+# ---------------------------------------------------------------------------
+#  RiskGuard Infrastructure — Docker Compose
+#  Starts: Kafka (KRaft, no Zookeeper) + topic initialiser
+#
+#  Usage:
+#    docker compose up              — start Kafka infrastructure only
+#    docker compose --profile app up — start Kafka + Java services
+# ---------------------------------------------------------------------------
+
+services:
+  # ── Kafka (KRaft mode — no Zookeeper required) ────────────────────────────
+  kafka:
+    image: apache/kafka:3.7.1
+    hostname: kafka
+    container_name: riskguard-kafka
+    ports:
+      - "29092:29092"            # host-accessible listener for local dev
+    environment:
+      # KRaft combined broker + controller
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Three listeners:
+      #   PLAINTEXT  — internal (service-to-service inside Docker network)
+      #   CONTROLLER — KRaft controller protocol
+      #   EXTERNAL   — host-accessible for local dev (localhost:29092)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: RiskGuardKafkaClusterId1
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+
+  # ── One-shot container that creates the transactions.raw topic ────────────
+  kafka-init:
+    image: apache/kafka:3.7.1
+    container_name: riskguard-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo '>>> Creating Kafka topics...'
+      /opt/kafka/bin/kafka-topics.sh \
+        --bootstrap-server kafka:9092 \
+        --create --if-not-exists \
+        --topic transactions.raw \
+        --partitions 3 \
+        --replication-factor 1
+      echo '>>> Topic transactions.raw created (3 partitions).'
+      "
+
+  # ── Redis (In-Memory Velocity Feature Cache) ─────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: riskguard-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── PostgreSQL (Persisted Decisions Store) ────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: riskguard-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: riskguard
+      POSTGRES_USER: riskguard
+      POSTGRES_PASSWORD: riskguard
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U riskguard -d riskguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Ingestion Service (Spring Boot) ──────────────────────────────────────
+  ingestion-service:
+    build:
+      context: ../ingestion-service
+      dockerfile: Dockerfile
+    container_name: riskguard-ingestion
+    profiles: ["app"]
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  # ── Decision Service (Spring Boot) ───────────────────────────────────────
+  decision-service:
+    build:
+      context: ../decision-service
+      dockerfile: Dockerfile
+    container_name: riskguard-decision
+    profiles: ["app"]
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/riskguard
+      SPRING_DATASOURCE_USERNAME: riskguard
+      SPRING_DATASOURCE_PASSWORD: riskguard
+      RISKGUARD_SCORING_SERVICE_URL: http://scoring-service:8000
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+

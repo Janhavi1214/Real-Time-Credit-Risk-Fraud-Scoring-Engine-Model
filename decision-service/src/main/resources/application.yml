@@ -1,0 +1,46 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: decision-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/riskguard}
+    username: ${SPRING_DATASOURCE_USERNAME:riskguard}
+    password: ${SPRING_DATASOURCE_PASSWORD:riskguard}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: decision-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.value.default.type: com.riskguard.decision.model.Transaction
+
+riskguard:
+  decision:
+    ml-threshold-flag: 0.3
+    ml-threshold-block: 0.7
+    hard-ceiling-amount: 10000.0
+    velocity-amount-threshold: 500.0
+    velocity-count-threshold: 3
+    new-device-amount-threshold: 1000.0
+    scoring-service-url: ${RISKGUARD_SCORING_SERVICE_URL:http://localhost:8000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+

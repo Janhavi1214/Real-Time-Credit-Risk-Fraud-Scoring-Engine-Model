@@ -1,10 +1,10 @@
 # ---------------------------------------------------------------------------
 #  RiskGuard Infrastructure — Docker Compose
-#  Starts: Kafka (KRaft, no Zookeeper) + topic initialiser
+#  Starts: Kafka (KRaft, no Zookeeper), Redis, Postgres + App Services
 #
 #  Usage:
-#    docker compose up              — start Kafka infrastructure only
-#    docker compose --profile app up — start Kafka + Java services
+#    docker compose up              — start infrastructure only
+#    docker compose --profile app up — start infrastructure + all app services
 # ---------------------------------------------------------------------------
 
 services:
@@ -99,6 +99,12 @@ services:
     profiles: ["app"]
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
   # ── Ingestion Service (Spring Boot) ──────────────────────────────────────
   ingestion-service:
@@ -114,6 +120,12 @@ services:
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
 
   # ── Decision Service (Spring Boot) ───────────────────────────────────────
   decision-service:
@@ -139,5 +151,13 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      scoring-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/health || wget -qO- http://localhost:8082/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
 
 
